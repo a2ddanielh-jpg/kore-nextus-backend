@@ -4,3 +4,5 @@ dist/
 certificates/
 *.pfx
 *.p12
+data/
+*.log
