@@ -54,7 +54,7 @@ async function initDatabase() {
             estimated_delivery_date DATE NOT NULL,
             total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
             amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
-            gateway_fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+            net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
             payment_method TEXT NOT NULL DEFAULT 'pix',
             project_link TEXT DEFAULT '',
             briefing_link TEXT DEFAULT '',
@@ -65,9 +65,8 @@ async function initDatabase() {
         )
     `);
     // Migração: adiciona gateway_fee se a tabela já existia sem ela
-    await exports.pool.query(`
-        ALTER TABLE agency_projects ADD COLUMN IF NOT EXISTS gateway_fee NUMERIC(12,2) NOT NULL DEFAULT 0
-    `);
+    await exports.pool.query(`ALTER TABLE agency_projects ADD COLUMN IF NOT EXISTS net_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await exports.pool.query(`ALTER TABLE agency_projects DROP COLUMN IF EXISTS gateway_fee`);
     console.log('✅ Banco de dados Supabase conectado!');
 }
 //# sourceMappingURL=database.js.map

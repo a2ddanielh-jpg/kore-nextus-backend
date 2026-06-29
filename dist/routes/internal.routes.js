@@ -23,24 +23,20 @@ router.post('/crm-won', requireInternalSecret, async (req, res) => {
     const client_code = phone.length >= 4 ? phone.slice(-4) : '';
     const today = new Date().toISOString().split('T')[0];
     const delivery = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    const notes = `Importado do CRM (${pipeline_name || 'Pipeline Principal'} → ${stage_name || 'Cerrado'}) | Lead ID: ${lead_id || ''}`;
 
-    const result = await database_1.pool.query(`
-      INSERT INTO agency_projects
+    const row = await database_1.db.prepare(
+      `INSERT INTO agency_projects
         (client_name, client_code, production_start_date, deadline_days,
-         estimated_delivery_date, total_amount, amount_paid, payment_method,
-         project_link, briefing_link, status, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-      RETURNING id
-    `, [
-      lead_name, client_code, today, 30, delivery,
-      Number(lead_value) || 0, 0, 'pix', '', '',
-      'em_producao',
-      `Importado do CRM (${pipeline_name || 'Pipeline Principal'} → ${stage_name || 'Cerrado'}) | Lead ID: ${lead_id || ''}`,
-    ]);
+         estimated_delivery_date, total_amount, amount_paid, gateway_fee,
+         payment_method, project_link, briefing_link, status, notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       RETURNING *`
+    ).get(lead_name, client_code, today, 30, delivery,
+          Number(lead_value) || 0, 0, 0, 'pix', '', '', 'em_producao', notes);
 
-    const newId = result.rows[0]?.id;
-    console.log(`[CRM→Gestão] Projeto criado: ${newId} para "${lead_name}"`);
-    res.status(201).json({ ok: true, project_id: newId });
+    console.log(`[CRM→Gestão] Projeto criado: ${row?.id} para "${lead_name}"`);
+    res.status(201).json({ ok: true, project_id: row?.id });
   } catch (e) {
     console.error('[CRM→Gestão] Erro:', e.message);
     res.status(500).json({ error: e.message });
