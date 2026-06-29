@@ -13,9 +13,8 @@ router.get('/', async (_req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { client_name, client_code, production_start_date, deadline_days, estimated_delivery_date, total_amount, amount_paid, gateway_fee, payment_method, project_link, briefing_link, status, notes } = req.body;
-    if (!client_name || !production_start_date) return res.status(400).json({ error: 'client_name e production_start_date são obrigatórios' });
     const { client_name, client_code, production_start_date, deadline_days, estimated_delivery_date, total_amount, amount_paid, net_amount, payment_method, project_link, briefing_link, status, notes } = req.body;
+    if (!client_name || !production_start_date) return res.status(400).json({ error: 'client_name e production_start_date são obrigatórios' });
     const row = await database_1.db.prepare(`INSERT INTO agency_projects (client_name,client_code,production_start_date,deadline_days,estimated_delivery_date,total_amount,amount_paid,net_amount,payment_method,project_link,briefing_link,status,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING *`).get(client_name, client_code||'', production_start_date, deadline_days||30, estimated_delivery_date||production_start_date, total_amount||0, amount_paid||0, net_amount||0, payment_method||'pix', project_link||'', briefing_link||'', status||'em_producao', notes||'');
     res.status(201).json(row);
   } catch (e) { res.status(500).json({ error: e.message }); }
