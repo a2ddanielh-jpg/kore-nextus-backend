@@ -1,4 +1,6 @@
 "use strict";
+// Force IPv4 DNS resolution — Render free tier does not route IPv6
+require('dns').setDefaultResultOrder('ipv4first');
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
