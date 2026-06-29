@@ -16,6 +16,7 @@ import cobrancaRoutes from './routes/cobranca.routes';
 import pacoteRoutes from './routes/pacote.routes';
 import webhookRoutes from './routes/webhook.routes';
 import agencyProjectRoutes from './routes/agencyProject.routes';
+import internalRoutes from './routes/internal.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -65,6 +66,9 @@ app.post('/api/cobrancas/public/:public_id/pay-card', (req, res, next) => {
 
 // Package checkout — public (called from landing page)
 app.use('/api/pacotes', pacoteRoutes);
+
+// Internal webhook — called by Kore Nextus CRM (secret-protected, no JWT)
+app.use('/api/internal', internalRoutes);
 
 // Health check — public
 app.get('/api/health', (_req, res) => {

@@ -19,6 +19,7 @@ const client_routes_1 = __importDefault(require("./routes/client.routes"));
 const settings_routes_1 = __importDefault(require("./routes/settings.routes"));
 const cobranca_routes_1 = __importDefault(require("./routes/cobranca.routes"));
 const agencyProject_routes_1 = __importDefault(require("./routes/agencyProject.routes"));
+const internal_routes_1 = __importDefault(require("./routes/internal.routes"));
 const pacote_routes_1 = __importDefault(require("./routes/pacote.routes"));
 const webhook_routes_1 = __importDefault(require("./routes/webhook.routes"));
 const app = (0, express_1.default)();
@@ -50,6 +51,7 @@ app.use('/certificates', express_1.default.static(path_1.default.join(__dirname,
 // ─────────────────────────────────────────────
 // Mercado Pago webhook — must be public (MP calls this)
 app.use('/api/webhooks', webhook_routes_1.default);
+app.use('/api/internal', internal_routes_1.default);
 // Public checkout data (used by the checkout React page)
 app.get('/api/cobrancas/public/:public_id', (req, res, next) => {
     req.url = `/public/${req.params.public_id}`;
