@@ -2,71 +2,93 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.db = exports.pool = void 0;
 exports.initDatabase = initDatabase;
-const pg_1 = require("pg");
-const connectionString = process.env.DATABASE_URL;
-exports.pool = new pg_1.Pool({
-    connectionString,
-    ssl: connectionString?.includes('supabase.co')
-        ? { rejectUnauthorized: false }
-        : false,
-    max: 10,
-});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Supabase REST API adapter — uses kore_exec() PostgreSQL function to run
+// arbitrary SQL via HTTPS instead of a direct pg connection (IPv6-only on
+// Supabase, not routable from Render free tier).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+
+// Shim for any routes that import pool directly
+exports.pool = {
+    query: async () => {
+        throw new Error('pool.query() disabled — use db.prepare()');
+    }
+};
+
 // Convert SQLite ? placeholders to PostgreSQL $1, $2, ...
 function toPostgres(sql) {
     let i = 0;
     return sql.replace(/\?/g, () => `$${++i}`);
 }
-// SQLite-compatible async wrapper — minimises changes in route files
+
+// Execute SQL via the kore_exec() PostgreSQL function in Supabase
+async function execViaRPC(sql, params) {
+    const pgSql = toPostgres(sql);
+    // Supabase RPC: POST /rest/v1/rpc/kore_exec
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/kore_exec`, {
+        method: 'POST',
+        headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation',
+        },
+        body: JSON.stringify({
+            q: pgSql,
+            p: params.map(v => (v === null || v === undefined) ? null : String(v)),
+        }),
+    });
+
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`kore_exec failed (${res.status}): ${text}`);
+    }
+
+    const raw = await res.text();
+    if (!raw || raw === 'null') return [];
+
+    // kore_exec returns a JSON array (stringified)
+    try {
+        const parsed = JSON.parse(raw);
+        // The RPC response might be a JSON string containing the array
+        if (typeof parsed === 'string') return JSON.parse(parsed);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+// SQLite-compatible async wrapper
 exports.db = {
     prepare: (sql) => {
-        const pgSql = toPostgres(sql);
         return {
-            // Returns first row or undefined
             get: async (...params) => {
-                const values = params.flat();
-                const result = await exports.pool.query(pgSql, values);
-                return result.rows[0] ?? null;
+                const rows = await execViaRPC(sql, params.flat());
+                return rows[0] ?? null;
             },
-            // Returns all rows
             all: async (...params) => {
-                const values = params.flat();
-                const result = await exports.pool.query(pgSql, values);
-                return result.rows;
+                return await execViaRPC(sql, params.flat());
             },
-            // Execute without returning rows
             run: async (...params) => {
-                const values = params.flat();
-                await exports.pool.query(pgSql, values);
+                await execViaRPC(sql, params.flat());
             },
         };
     },
 };
+
 async function initDatabase() {
-    console.log('🗄️  Conectando ao Supabase PostgreSQL...');
-    await exports.pool.query('SELECT 1');
-    await exports.pool.query(`
-        CREATE TABLE IF NOT EXISTS agency_projects (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            client_name TEXT NOT NULL,
-            client_code TEXT NOT NULL DEFAULT '',
-            production_start_date DATE NOT NULL,
-            deadline_days INTEGER NOT NULL DEFAULT 30,
-            estimated_delivery_date DATE NOT NULL,
-            total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-            amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
-            net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-            payment_method TEXT NOT NULL DEFAULT 'pix',
-            project_link TEXT DEFAULT '',
-            briefing_link TEXT DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'em_producao',
-            notes TEXT DEFAULT '',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-    `);
-    // Migração: adiciona gateway_fee se a tabela já existia sem ela
-    await exports.pool.query(`ALTER TABLE agency_projects ADD COLUMN IF NOT EXISTS net_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
-    await exports.pool.query(`ALTER TABLE agency_projects DROP COLUMN IF EXISTS gateway_fee`);
-    console.log('✅ Banco de dados Supabase conectado!');
+    console.log('🗄️  Conectando ao Supabase via REST API...');
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        throw new Error('SUPABASE_URL e SUPABASE_SERVICE_KEY são obrigatórios');
+    }
+    // Smoke test via kore_exec
+    const rows = await execViaRPC('SELECT 1 AS ok', []);
+    if (!rows || rows[0]?.ok !== 1) {
+        throw new Error('kore_exec smoke test failed');
+    }
+    console.log('✅ Supabase REST API (kore_exec) conectada!');
 }
-//# sourceMappingURL=database.js.map

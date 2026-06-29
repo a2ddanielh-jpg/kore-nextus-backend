@@ -28,7 +28,7 @@ router.post('/crm-won', requireInternalSecret, async (req, res) => {
     const row = await database_1.db.prepare(
       `INSERT INTO agency_projects
         (client_name, client_code, production_start_date, deadline_days,
-         estimated_delivery_date, total_amount, amount_paid, gateway_fee,
+         estimated_delivery_date, total_amount, amount_paid, net_amount,
          payment_method, project_link, briefing_link, status, notes)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
        RETURNING *`
