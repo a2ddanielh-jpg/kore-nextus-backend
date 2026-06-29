@@ -15,6 +15,7 @@ import settingsRoutes from './routes/settings.routes';
 import cobrancaRoutes from './routes/cobranca.routes';
 import pacoteRoutes from './routes/pacote.routes';
 import webhookRoutes from './routes/webhook.routes';
+import agencyProjectRoutes from './routes/agencyProject.routes';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -78,7 +79,8 @@ app.use('/api/transactions',    requireAuth, transactionRoutes);
 app.use('/api/fixed-expenses',  requireAuth, fixedExpenseRoutes);
 app.use('/api/tax-reserve',     requireAuth, taxReserveRoutes);
 app.use('/api/nfse',            requireAuth, nfseRoutes);
-app.use('/api/clients',         requireAuth, clientRoutes);
+app.use('/api/clients',          requireAuth, clientRoutes);
+app.use('/api/agency-projects', requireAuth, agencyProjectRoutes);
 app.use('/api/settings',        requireAuth, settingsRoutes);
 app.use('/api/cobrancas',       requireAuth, cobrancaRoutes);
 

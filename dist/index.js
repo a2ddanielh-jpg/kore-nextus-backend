@@ -18,6 +18,7 @@ const nfse_routes_1 = __importDefault(require("./routes/nfse.routes"));
 const client_routes_1 = __importDefault(require("./routes/client.routes"));
 const settings_routes_1 = __importDefault(require("./routes/settings.routes"));
 const cobranca_routes_1 = __importDefault(require("./routes/cobranca.routes"));
+const agencyProject_routes_1 = __importDefault(require("./routes/agencyProject.routes"));
 const pacote_routes_1 = __importDefault(require("./routes/pacote.routes"));
 const webhook_routes_1 = __importDefault(require("./routes/webhook.routes"));
 const app = (0, express_1.default)();
@@ -74,6 +75,7 @@ app.use('/api/fixed-expenses', auth_1.requireAuth, fixedExpense_routes_1.default
 app.use('/api/tax-reserve', auth_1.requireAuth, taxReserve_routes_1.default);
 app.use('/api/nfse', auth_1.requireAuth, nfse_routes_1.default);
 app.use('/api/clients', auth_1.requireAuth, client_routes_1.default);
+app.use('/api/agency-projects', auth_1.requireAuth, agencyProject_routes_1.default);
 app.use('/api/settings', auth_1.requireAuth, settings_routes_1.default);
 app.use('/api/cobrancas', auth_1.requireAuth, cobranca_routes_1.default);
 // ─────────────────────────────────────────────

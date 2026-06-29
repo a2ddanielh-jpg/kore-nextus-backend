@@ -3,11 +3,13 @@ import { db } from '../db/database';
 import { v4 as uuidv4 } from 'uuid';
 import { customAlphabet } from 'nanoid';
 import {
-  getOrCreateCustomer,
-  createPayment,
-  cancelPayment as cancelAsaasPayment,
-  getPixQrCode,
-} from '../services/asaas.service';
+  createPixPayment,
+  createPreference,
+  cancelPixPayment,
+  createCardPayment,
+  mpMethodLabel,
+  type MpPayerInput,
+} from '../services/mercadopago.service';
 import { notifyCobrancaCreated } from '../services/telegram.service';
 
 const router = Router();
@@ -106,67 +108,55 @@ router.post('/', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const public_id = nanoid();
+    const amount = parseFloat(valor);
+    const dueDate = vencimento || null;
 
-    const dueDate = vencimento || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const payer: MpPayerInput = {
+      name: client.name || client.razao_social || 'Cliente',
+      email: client.email || '',
+      cpfCnpj: client.cpf_cnpj || '',
+      tipoPessoa: client.tipo_pessoa === 'F' ? 'F' : 'J',
+    };
 
-    // 1. Get or create Asaas customer
-    let asaasCustomerId: string;
-    try {
-      asaasCustomerId = await getOrCreateCustomer({
-        name: client.name || client.razao_social,
-        cpfCnpj: client.cpf_cnpj,
-        email: client.email || undefined,
-        phone: client.telefone || undefined,
-        mobilePhone: client.telefone || undefined,
-        postalCode: client.cep || undefined,
-        address: client.endereco || undefined,
-        addressNumber: client.numero || undefined,
-        province: client.bairro || undefined,
-      });
-
-      if (client.asaas_customer_id !== asaasCustomerId) {
-        await db.prepare('UPDATE clients SET asaas_customer_id = ? WHERE id = ?').run(asaasCustomerId, client_id);
-      }
-    } catch (e: any) {
-      return res.status(500).json({ error: `Erro ao criar customer no Asaas: ${e.message}` });
-    }
-
-    // 2. Create payment
-    const callbackPublicUrl = PUBLIC_URL.startsWith('https://')
-      ? { successUrl: `${PUBLIC_URL.replace(/\/$/, '')}/pagar/${public_id}/sucesso`, autoRedirect: true }
+    const successUrl = PUBLIC_URL.startsWith('https://')
+      ? `${PUBLIC_URL.replace(/\/$/, '')}/pagar/${public_id}/sucesso`
       : undefined;
 
-    let payment: any;
-    try {
-      payment = await createPayment({
-        customerId: asaasCustomerId,
-        value: parseFloat(valor),
-        dueDate,
-        description: descricao,
-        externalReference: public_id,
-        billingType: 'UNDEFINED',
-        callback: callbackPublicUrl,
-      });
-    } catch (e: any) {
-      return res.status(500).json({ error: `Erro ao criar pagamento Asaas: ${e.message}` });
-    }
+    // 1. Criar pagamento PIX (QR inline)
+    let pixQrCode = '';
+    let pixQrBase64 = '';
+    let pixExpiresAt = '';
+    let mpPaymentId = '';
 
-    // 3. Fetch PIX QR code (best effort)
-    let pixContent = '';
-    let pixBase64 = '';
-    let expiresAt = '';
-    try {
-      const qr = await getPixQrCode(payment.id);
-      if (qr) {
-        pixContent = qr.payload;
-        pixBase64 = qr.encodedImage ? `data:image/png;base64,${qr.encodedImage}` : '';
-        expiresAt = qr.expirationDate;
+    const methods = (payment_methods as string).split(',');
+    if (methods.includes('pix')) {
+      try {
+        const pix = await createPixPayment(amount, descricao, public_id, payer, dueDate);
+        mpPaymentId = pix.paymentId;
+        pixQrCode = pix.qrCode;
+        pixQrBase64 = pix.qrCodeBase64 ? `data:image/png;base64,${pix.qrCodeBase64}` : '';
+        pixExpiresAt = pix.expirationDate;
+      } catch (e: any) {
+        return res.status(500).json({ error: `Erro ao criar PIX no Mercado Pago: ${e.message}` });
       }
-    } catch (e: any) {
-      console.warn('PIX QR fetch falhou:', e.message);
     }
 
-    // 4. Insert in DB
+    // 2. Criar preference para cartão (Checkout Pro)
+    let checkoutUrl = '';
+    if (methods.includes('card')) {
+      try {
+        const pref = await createPreference(amount, descricao, public_id, payer.email, dueDate, successUrl);
+        checkoutUrl = pref.initPoint;
+      } catch (e: any) {
+        // Não bloqueia se o PIX já foi criado — só loga o erro
+        console.warn('Aviso: erro ao criar preference MP (cartão):', e.message);
+      }
+    }
+
+    // Fallback: se apenas cartão e sem PIX, usa checkout pro URL
+    const paymentUrl = checkoutUrl || pixQrCode;
+
+    // 3. Inserir no banco
     await db.prepare(`
       INSERT INTO cobrancas (
         id, public_id, client_id, valor, descricao, codigo_servico, aliquota_iss,
@@ -174,13 +164,13 @@ router.post('/', async (req: Request, res: Response) => {
         picpay_payment_url, picpay_qr_content, picpay_qr_base64, picpay_expires_at,
         provider, provider_payment_id,
         notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 'asaas', ?, ?, NOW(), NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, 'mercadopago', ?, ?, NOW(), NOW())
     `).run(
-      id, public_id, client_id, parseFloat(valor), descricao, codigo_servico, parseFloat(aliquota_iss),
-      vencimento, payment_methods,
-      payment.invoiceUrl, pixContent, pixBase64, expiresAt,
-      payment.id,
-      notes
+      id, public_id, client_id, amount, descricao, codigo_servico, parseFloat(aliquota_iss),
+      dueDate, payment_methods,
+      checkoutUrl, pixQrCode, pixQrBase64, pixExpiresAt,
+      mpPaymentId,
+      notes,
     );
 
     const created = await db.prepare(`
@@ -192,7 +182,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     notifyCobrancaCreated({
       clientName: client.name,
-      valor: parseFloat(valor),
+      valor: amount,
       publicUrl,
     }).catch((e: any) => console.warn('Telegram notify failed:', e.message));
 
@@ -223,6 +213,75 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /public/:public_id/pay-card — checkout transparente (sem auth)
+// Recebe o cardFormData do Mercado Pago Bricks e processa o pagamento
+// ─────────────────────────────────────────────
+router.post('/public/:public_id/pay-card', async (req: Request, res: Response) => {
+  try {
+    const cobranca = await db.prepare(`
+      SELECT c.*, cl.name as client_name FROM cobrancas c
+      LEFT JOIN clients cl ON c.client_id = cl.id
+      WHERE c.public_id = ?
+    `).get(req.params.public_id) as any;
+
+    if (!cobranca) return res.status(404).json({ error: 'Cobrança não encontrada' });
+    if (cobranca.status !== 'pending') return res.status(400).json({ error: 'Cobrança não está pendente' });
+
+    const payment = await createCardPayment(cobranca.valor, cobranca.descricao, cobranca.public_id, req.body);
+
+    if (payment.status === 'approved' || payment.status === 'authorized') {
+      const methodLabel = mpMethodLabel(payment.payment_type_id || 'credit_card');
+      const today = new Date().toISOString().split('T')[0];
+      const settings = await db.prepare('SELECT * FROM settings WHERE id = 1').get() as any;
+      const taxPercent = settings?.tax_reserve_percent || 6.0;
+      const taxAmount = +(cobranca.valor * (taxPercent / 100)).toFixed(2);
+
+      await db.prepare(`UPDATE cobrancas SET status = 'paid', paid_at = NOW(), paid_method = ?, authorization_id = ?, updated_at = NOW() WHERE id = ?`)
+        .run(methodLabel, String(payment.id), cobranca.id);
+
+      const txId = uuidv4();
+      await db.prepare(`
+        INSERT INTO transactions (id, type, description, amount, date, category, status, client_id, notes, tax_reserve_amount)
+        VALUES (?, 'income', ?, ?, ?, 'Cobrança Mercado Pago', 'completed', ?, ?, ?)
+      `).run(txId, `Pagamento — ${cobranca.descricao.substring(0, 80)}`, cobranca.valor, today, cobranca.client_id,
+        `Cobrança ${cobranca.public_id} via MP (${methodLabel})`, taxAmount);
+
+      await db.prepare(`INSERT INTO tax_reserves (id, transaction_id, amount, percent, reference_month, status) VALUES (?, ?, ?, ?, ?, 'pending')`)
+        .run(uuidv4(), txId, taxAmount, taxPercent, today.substring(0, 7));
+
+      await db.prepare('UPDATE cobrancas SET transaction_id = ? WHERE id = ?').run(txId, cobranca.id);
+
+      return res.json({ success: true });
+    }
+
+    if (payment.status === 'pending' || payment.status === 'in_process') {
+      return res.json({ success: false, pending: true, message: 'Pagamento em análise. Você receberá confirmação em breve.' });
+    }
+
+    // rejected — mapear status_detail para mensagem amigável
+    const detail: string = payment.status_detail || '';
+    const friendlyErrors: Record<string, string> = {
+      cc_rejected_insufficient_amount: 'Saldo insuficiente no cartão.',
+      cc_rejected_bad_filled_card_number: 'Número do cartão incorreto.',
+      cc_rejected_bad_filled_date: 'Data de validade incorreta.',
+      cc_rejected_bad_filled_security_code: 'Código de segurança incorreto.',
+      cc_rejected_call_for_authorize: 'Autorize o pagamento com seu banco e tente novamente.',
+      cc_rejected_card_disabled: 'Cartão desabilitado. Entre em contato com seu banco.',
+      cc_rejected_duplicated_payment: 'Pagamento duplicado detectado.',
+      cc_rejected_high_risk: 'Pagamento recusado por segurança.',
+    };
+
+    res.json({
+      success: false,
+      error: friendlyErrors[detail] || 'Pagamento não aprovado. Verifique os dados e tente novamente.',
+    });
+  } catch (error: any) {
+    console.error('Erro processar cartão:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // POST /api/cobrancas/:id/cancel
 // ─────────────────────────────────────────────
 router.post('/:id/cancel', async (req: Request, res: Response) => {
@@ -231,7 +290,7 @@ router.post('/:id/cancel', async (req: Request, res: Response) => {
     if (!c) return res.status(404).json({ error: 'Cobrança não encontrada' });
 
     if (c.provider_payment_id) {
-      try { await cancelAsaasPayment(c.provider_payment_id); } catch { /* ignore */ }
+      await cancelPixPayment(c.provider_payment_id).catch(() => {});
     }
 
     await db.prepare(`UPDATE cobrancas SET status = 'cancelled', updated_at = NOW() WHERE id = ?`)

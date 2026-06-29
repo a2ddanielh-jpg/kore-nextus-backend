@@ -44,6 +44,25 @@ exports.db = {
 async function initDatabase() {
     console.log('🗄️  Conectando ao Supabase PostgreSQL...');
     await exports.pool.query('SELECT 1');
+    await exports.pool.query(`
+        CREATE TABLE IF NOT EXISTS agency_projects (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            client_name TEXT NOT NULL,
+            client_code TEXT NOT NULL DEFAULT '',
+            production_start_date DATE NOT NULL,
+            deadline_days INTEGER NOT NULL DEFAULT 30,
+            estimated_delivery_date DATE NOT NULL,
+            total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+            amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
+            payment_method TEXT NOT NULL DEFAULT 'pix',
+            project_link TEXT DEFAULT '',
+            briefing_link TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'em_producao',
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    `);
     console.log('✅ Banco de dados Supabase conectado!');
 }
 //# sourceMappingURL=database.js.map
