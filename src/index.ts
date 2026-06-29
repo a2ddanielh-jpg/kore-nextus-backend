@@ -13,6 +13,7 @@ import nfseRoutes from './routes/nfse.routes';
 import clientRoutes from './routes/client.routes';
 import settingsRoutes from './routes/settings.routes';
 import cobrancaRoutes from './routes/cobranca.routes';
+import pacoteRoutes from './routes/pacote.routes';
 import webhookRoutes from './routes/webhook.routes';
 
 const app = express();
@@ -46,15 +47,23 @@ app.use('/certificates', express.static(path.join(__dirname, '../certificates'))
 // PUBLIC routes — no auth required
 // ─────────────────────────────────────────────
 
-// Asaas webhook — must be public (Asaas calls this)
+// Mercado Pago webhook — must be public (MP calls this)
 app.use('/api/webhooks', webhookRoutes);
 
 // Public checkout data (used by the checkout React page)
 app.get('/api/cobrancas/public/:public_id', (req, res, next) => {
-  // Strip the /api prefix and forward to the cobranca router
   req.url = `/public/${req.params.public_id}`;
   cobrancaRoutes(req, res, next);
 });
+
+// Public card payment — Mercado Pago Bricks posts token here (no auth required)
+app.post('/api/cobrancas/public/:public_id/pay-card', (req, res, next) => {
+  req.url = `/public/${req.params.public_id}/pay-card`;
+  cobrancaRoutes(req, res, next);
+});
+
+// Package checkout — public (called from landing page)
+app.use('/api/pacotes', pacoteRoutes);
 
 // Health check — public
 app.get('/api/health', (_req, res) => {
@@ -81,15 +90,18 @@ if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
 }
 
-// PUBLIC: Checkout page
-app.get('/pagar/:publicId', (_req, res) => {
+// PUBLIC: Checkout pages (SPA fallback)
+const serveSpa = (_req: any, res: any) => {
   const indexPath = path.join(frontendDist, 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
     res.status(503).send('Sistema em manutenção.');
   }
-});
+};
+
+app.get('/pagar/:publicId', serveSpa);
+app.get('/checkout/:pacote', serveSpa);
 
 // PUBLIC: Root
 app.get('/', (_req, res) => {
@@ -121,13 +133,19 @@ app.get('/', (_req, res) => {
 // Boot
 // ─────────────────────────────────────────────
 async function main() {
-  await initDatabase();
+  // Start server first so health checks pass, then connect DB
   app.listen(PORT, () => {
     console.log(`🚀 Kore Nextus Backend rodando na porta ${PORT}`);
-    console.log(`📊 API disponível em http://localhost:${PORT}/api`);
-    console.log(`🌐 Public URL: ${process.env.PUBLIC_URL || 'http://localhost:3001'}`);
-    console.log(`🔐 Auth: Supabase JWT`);
+    console.log(`📊 DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
+    console.log(`🔐 JWT_SECRET set: ${!!process.env.SUPABASE_JWT_SECRET}`);
   });
+
+  try {
+    await initDatabase();
+    console.log('✅ DB conectado com sucesso');
+  } catch (err) {
+    console.error('⚠️  DB connection failed (server still running):', err);
+  }
 }
 
 main().catch(err => {

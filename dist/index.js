@@ -124,13 +124,17 @@ app.get('/', (_req, res) => {
 // Boot
 // ─────────────────────────────────────────────
 async function main() {
-    await (0, database_1.initDatabase)();
     app.listen(PORT, () => {
         console.log(`🚀 Kore Nextus Backend rodando na porta ${PORT}`);
-        console.log(`📊 API disponível em http://localhost:${PORT}/api`);
-        console.log(`🌐 Public URL: ${process.env.PUBLIC_URL || 'http://localhost:3001'}`);
-        console.log(`🔐 Auth: Supabase JWT`);
+        console.log(`📊 DATABASE_URL set: ${!!process.env.DATABASE_URL}`);
+        console.log(`🔐 JWT_SECRET set: ${!!process.env.SUPABASE_JWT_SECRET}`);
     });
+    try {
+        await (0, database_1.initDatabase)();
+        console.log('✅ DB conectado com sucesso');
+    } catch (err) {
+        console.error('⚠️  DB connection failed (server still running):', err);
+    }
 }
 main().catch(err => {
     console.error('❌ Falha ao iniciar:', err);
