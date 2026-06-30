@@ -36,9 +36,18 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   const token = authHeader.slice(7);
   try {
     const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-    const decoded = jwtSecret
-      ? jwt.verify(token, jwtSecret) as any
-      : await validateWithSupabase(token);
+    let decoded: any;
+
+    if (jwtSecret) {
+      try {
+        decoded = jwt.verify(token, jwtSecret) as any;
+      } catch (e: any) {
+        console.warn('[Auth] JWT local falhou, validando via Supabase:', e.message);
+        decoded = await validateWithSupabase(token);
+      }
+    } else {
+      decoded = await validateWithSupabase(token);
+    }
 
     req.user = {
       sub: decoded.sub || decoded.id,
