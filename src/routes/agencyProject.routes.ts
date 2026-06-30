@@ -17,7 +17,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const {
       client_name, client_code, production_start_date, deadline_days,
-      estimated_delivery_date, total_amount, amount_paid, payment_method,
+      estimated_delivery_date, total_amount, amount_paid, net_amount, payment_method,
       project_link, briefing_link, status, notes
     } = req.body;
     if (!client_name || !production_start_date) {
@@ -26,14 +26,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const row = await db.prepare(`
       INSERT INTO agency_projects
         (client_name, client_code, production_start_date, deadline_days,
-         estimated_delivery_date, total_amount, amount_paid, payment_method,
+         estimated_delivery_date, total_amount, amount_paid, net_amount, payment_method,
          project_link, briefing_link, status, notes)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       RETURNING *
     `).get(
       client_name, client_code || '', production_start_date,
       deadline_days || 30, estimated_delivery_date || production_start_date,
-      total_amount || 0, amount_paid || 0, payment_method || 'pix',
+      total_amount || 0, amount_paid || 0, net_amount || 0, payment_method || 'pix',
       project_link || '', briefing_link || '', status || 'em_producao', notes || ''
     );
     res.status(201).json(row);
@@ -44,7 +44,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const {
       client_name, client_code, production_start_date, deadline_days,
-      estimated_delivery_date, total_amount, amount_paid, payment_method,
+      estimated_delivery_date, total_amount, amount_paid, net_amount, payment_method,
       project_link, briefing_link, status, notes
     } = req.body;
     const row = await db.prepare(`
@@ -56,6 +56,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         estimated_delivery_date=COALESCE(?,estimated_delivery_date),
         total_amount=COALESCE(?,total_amount),
         amount_paid=COALESCE(?,amount_paid),
+        net_amount=COALESCE(?,net_amount),
         payment_method=COALESCE(?,payment_method),
         project_link=COALESCE(?,project_link),
         briefing_link=COALESCE(?,briefing_link),
@@ -66,7 +67,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       RETURNING *
     `).get(
       client_name, client_code, production_start_date, deadline_days,
-      estimated_delivery_date, total_amount, amount_paid, payment_method,
+      estimated_delivery_date, total_amount, amount_paid, net_amount, payment_method,
       project_link, briefing_link, status, notes, req.params.id
     );
     if (!row) return res.status(404).json({ error: 'Projeto não encontrado' });

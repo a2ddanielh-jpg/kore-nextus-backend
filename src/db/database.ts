@@ -1,70 +1,77 @@
-import { Pool } from 'pg';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 
-const connectionString = process.env.DATABASE_URL;
+export const pool = {
+  query: async (): Promise<never> => {
+    throw new Error('pool.query() disabled; use db.prepare()');
+  },
+};
 
-export const pool = new Pool({
-  connectionString,
-  ssl: connectionString?.includes('supabase.co')
-    ? { rejectUnauthorized: false }
-    : false,
-  max: 10,
-});
-
-// Convert SQLite ? placeholders to PostgreSQL $1, $2, ...
 function toPostgres(sql: string): string {
   let i = 0;
   return sql.replace(/\?/g, () => `$${++i}`);
 }
 
-// SQLite-compatible async wrapper — minimises changes in route files
+async function execViaRpc(sql: string, params: any[]): Promise<any[]> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY are required');
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/kore_exec`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      q: toPostgres(sql),
+      p: params.map((value) => (value === null || value === undefined ? null : String(value))),
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`kore_exec failed (${response.status}): ${text}`);
+  }
+
+  const text = await response.text();
+  if (!text || text === 'null') return [];
+
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    if (typeof parsed === 'string') {
+      const inner = JSON.parse(parsed);
+      return Array.isArray(inner) ? inner : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export const db = {
-  prepare: (sql: string) => {
-    const pgSql = toPostgres(sql);
-    return {
-      // Returns first row or undefined
-      get: async (...params: any[]): Promise<any> => {
-        const values = params.flat();
-        const result = await pool.query(pgSql, values);
-        return result.rows[0] ?? null;
-      },
-      // Returns all rows
-      all: async (...params: any[]): Promise<any[]> => {
-        const values = params.flat();
-        const result = await pool.query(pgSql, values);
-        return result.rows;
-      },
-      // Execute without returning rows
-      run: async (...params: any[]): Promise<void> => {
-        const values = params.flat();
-        await pool.query(pgSql, values);
-      },
-    };
-  },
+  prepare: (sql: string) => ({
+    get: async (...params: any[]): Promise<any | null> => {
+      const rows = await execViaRpc(sql, params.flat());
+      return rows[0] ?? null;
+    },
+    all: async (...params: any[]): Promise<any[]> => {
+      return execViaRpc(sql, params.flat());
+    },
+    run: async (...params: any[]): Promise<void> => {
+      await execViaRpc(sql, params.flat());
+    },
+  }),
 };
 
 export async function initDatabase(): Promise<void> {
-  console.log('🗄️  Conectando ao Supabase PostgreSQL...');
-  await pool.query('SELECT 1');
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agency_projects (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      client_name TEXT NOT NULL,
-      client_code TEXT NOT NULL,
-      production_start_date DATE NOT NULL,
-      deadline_days INTEGER NOT NULL DEFAULT 30,
-      estimated_delivery_date DATE NOT NULL,
-      total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-      amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
-      net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-      payment_method TEXT NOT NULL DEFAULT 'pix',
-      project_link TEXT DEFAULT '',
-      briefing_link TEXT DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'em_producao',
-      notes TEXT DEFAULT '',
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-  await pool.query(`ALTER TABLE agency_projects ADD COLUMN IF NOT EXISTS net_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
-  console.log('✅ Banco de dados Supabase conectado!');
+  console.log('Connecting to Supabase via REST API...');
+  const rows = await execViaRpc('SELECT 1 AS ok', []);
+  if (Number(rows[0]?.ok) !== 1) {
+    throw new Error('kore_exec smoke test failed');
+  }
+  console.log('Supabase REST API connected');
 }

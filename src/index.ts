@@ -72,6 +72,7 @@ app.use('/api/pacotes', pacoteRoutes);
 
 // Internal webhook — called by Kore Nextus CRM (secret-protected, no JWT)
 app.use('/api/internal', internalRoutes);
+app.use('/internal', internalRoutes);
 
 // Health check — public
 app.get('/api/health', (_req, res) => {

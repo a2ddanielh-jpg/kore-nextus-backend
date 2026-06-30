@@ -6,8 +6,11 @@ const router = Router();
 // Verifica el secret compartido entre la Plataforma Kore y este backend
 function requireInternalSecret(req: Request, res: Response, next: any) {
   const secret = process.env.INTERNAL_WEBHOOK_SECRET;
-  if (!secret) return res.status(500).json({ error: 'INTERNAL_WEBHOOK_SECRET no configurado' });
-  if (req.headers['x-internal-secret'] !== secret) {
+  const apiKey = process.env.INTERNAL_API_KEY;
+  const validSecret = !!secret && req.headers['x-internal-secret'] === secret;
+  const validApiKey = !!apiKey && req.headers['x-internal-api-key'] === apiKey;
+  if (!secret && !apiKey) return res.status(500).json({ error: 'INTERNAL_WEBHOOK_SECRET ou INTERNAL_API_KEY no configurado' });
+  if (!validSecret && !validApiKey) {
     return res.status(401).json({ error: 'Secret inválido' });
   }
   next();
@@ -42,7 +45,7 @@ router.post('/crm-won', requireInternalSecret, async (req: Request, res: Respons
     const row = await db.prepare(`
       INSERT INTO agency_projects
         (client_name, client_code, production_start_date, deadline_days,
-         estimated_delivery_date, total_amount, amount_paid, gateway_fee,
+         estimated_delivery_date, total_amount, amount_paid, net_amount,
          payment_method, project_link, briefing_link, status, notes)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       RETURNING *

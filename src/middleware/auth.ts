@@ -1,13 +1,33 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET!;
-
 export interface AuthRequest extends Request {
   user?: { sub: string; email: string; role: string };
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+async function validateWithSupabase(token: string) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('SUPABASE_URL/SUPABASE_SERVICE_KEY ausentes');
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: supabaseKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase Auth rejeitou token (${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Não autorizado — token ausente' });
@@ -15,10 +35,19 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 
   const token = authHeader.slice(7);
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    req.user = { sub: decoded.sub, email: decoded.email, role: decoded.role };
+    const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+    const decoded = jwtSecret
+      ? jwt.verify(token, jwtSecret) as any
+      : await validateWithSupabase(token);
+
+    req.user = {
+      sub: decoded.sub || decoded.id,
+      email: decoded.email || '',
+      role: decoded.role || 'authenticated',
+    };
     next();
-  } catch {
+  } catch (e: any) {
+    console.warn('[Auth] Token rejeitado:', e.message);
     res.status(401).json({ error: 'Token inválido ou expirado' });
   }
 }
