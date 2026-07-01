@@ -9,3 +9,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: INTERNAL_WEBHOOK_SECRET
+        value: 4e0874cd55188a064c0701944a471aedc4b9998b3d99345e0acbda4f46975c4a
+      - key: INTERNAL_API_KEY
+        value: 4e0874cd55188a064c0701944a471aedc4b9998b3d99345e0acbda4f46975c4a
+      - key: SUPABASE_URL
+        value: https://czdptfzwhsjxumvkxqkk.supabase.co

@@ -159,9 +159,50 @@ CREATE TABLE IF NOT EXISTS cobrancas (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Proyectos de agencia (creados automáticamente desde CRM leads cerrados)
+CREATE TABLE IF NOT EXISTS agency_projects (
+  id                    SERIAL PRIMARY KEY,
+  client_name           TEXT NOT NULL,
+  client_code           TEXT NOT NULL DEFAULT '',
+  production_start_date TEXT NOT NULL,
+  deadline_days         INTEGER NOT NULL DEFAULT 30,
+  estimated_delivery_date TEXT NOT NULL,
+  total_amount          NUMERIC NOT NULL DEFAULT 0,
+  amount_paid           NUMERIC NOT NULL DEFAULT 0,
+  net_amount            NUMERIC NOT NULL DEFAULT 0,
+  payment_method        TEXT NOT NULL DEFAULT 'pix',
+  project_link          TEXT NOT NULL DEFAULT '',
+  briefing_link         TEXT NOT NULL DEFAULT '',
+  status                TEXT NOT NULL DEFAULT 'em_producao'
+                        CHECK(status IN ('em_producao','entregue','revisao','cancelado')),
+  notes                 TEXT NOT NULL DEFAULT '',
+  created_at            TIMESTAMPTZ DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Función RPC para ejecutar SQL arbitrario desde el backend via REST API
+-- Necesaria porque Render free tier no permite conexión directa a Supabase por IPv6
+CREATE OR REPLACE FUNCTION kore_exec(q TEXT, p TEXT[] DEFAULT '{}')
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result JSONB;
+BEGIN
+  EXECUTE format('SELECT jsonb_agg(row_to_json(t)) FROM (%s) t', q)
+    USING p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10],
+          p[11], p[12], p[13], p[14], p[15], p[16], p[17], p[18], p[19], p[20]
+  INTO result;
+  RETURN COALESCE(result, '[]'::jsonb);
+END;
+$$;
+
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
 CREATE INDEX IF NOT EXISTS idx_cobrancas_public_id ON cobrancas(public_id);
 CREATE INDEX IF NOT EXISTS idx_cobrancas_status ON cobrancas(status);
 CREATE INDEX IF NOT EXISTS idx_fixed_expenses_active ON fixed_expenses(is_active);
+CREATE INDEX IF NOT EXISTS idx_agency_projects_status ON agency_projects(status);
+CREATE INDEX IF NOT EXISTS idx_agency_projects_created ON agency_projects(created_at DESC);
